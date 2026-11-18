@@ -23,3 +23,5 @@ jobs:
         run: python -m compileall -q skills/remake-reference-video/scripts tests
       - name: Render and validate a small bilingual video
         run: python tests/smoke.py
+      - name: Check selected windows and motion contracts
+        run: python tests/motion_contract_smoke.py

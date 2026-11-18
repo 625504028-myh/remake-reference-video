@@ -66,11 +66,32 @@ def prepare(a):
     if not rate or rate=='0/0':rate='30/1'
     fr=Fraction(rate)
     if not 0<float(fr)<=240:raise ValueError('Unusual frame rate; inspect the source and specify --fps')
-    run(['ffmpeg','-hide_banner','-loglevel','error','-i',a.video,'-vf',f'scale=trunc(iw*sar/2)*2:trunc(ih/2)*2,setsar=1,fps={fr.numerator}/{fr.denominator}','-an','-start_number','1',frames/'f_%06d.png'])
+    start=getattr(a,'start',0.0);duration=getattr(a,'duration',None)
+    if not math.isfinite(start) or start<0:raise ValueError('--start must be finite and nonnegative')
+    if duration is not None and (not math.isfinite(duration) or duration<=0):raise ValueError('--duration must be finite and positive')
+    source_duration=v.get('duration') or metadata.get('format',{}).get('duration')
+    if source_duration is not None:
+        source_duration=float(source_duration)
+        if start>=source_duration or (duration is not None and start+duration>source_duration+1e-6):
+            raise ValueError('Requested window exceeds source duration; do not silently shorten or loop it')
+    start_frame=int(Fraction(str(start))*fr+Fraction(1,2))
+    count=None if duration is None else int(Fraction(str(duration))*fr+Fraction(1,2))
+    if count is not None and count<1:raise ValueError('Requested duration is shorter than one sampled frame')
+    trim=f'trim=start_frame={start_frame}'
+    if count is not None:trim+=f':end_frame={start_frame+count}'
+    filters=f'fps={fr.numerator}/{fr.denominator},{trim},setpts=PTS-STARTPTS,scale=trunc(iw*sar/2)*2:trunc(ih/2)*2,setsar=1'
+    command=['ffmpeg','-hide_banner','-loglevel','error','-i',a.video,'-vf',filters,'-an']
+    if count is not None:command+=['-frames:v',str(count)]
+    run(command+['-fps_mode','passthrough','-start_number','1',frames/'f_%06d.png'])
     ff=files(frames)
     if not ff:raise ValueError('No frames decoded')
+    if count is not None and len(ff)!=count:raise ValueError('Source did not provide the entire requested frame window')
     with Image.open(ff[0]) as im:w,h=im.size
     media={'path':str(Path(a.video).resolve()),'frame_dir':str(frames),'width':w,'height':h,'fps':str(fr), 'frames':len(ff),'duration':len(ff)/float(fr),'original_probe':metadata,'note':'Decoded CFR sampling; inspect original_probe for rotation/VFR differences.'}
+    media['window']={'requested_start':start,'requested_duration':duration,
+        'start_frame':start_frame,'end_frame':start_frame+len(ff),
+        'actual_start':start_frame/float(fr),'actual_duration':len(ff)/float(fr),
+        'alignment':'Nearest frame on decoded CFR timeline; requested seconds may differ by at most half a frame.'}
     write_json(job/'media.json',media)
     step=max(1,round(a.step*float(fr)))
     indices=sorted(set(range(0,len(ff),step))|{len(ff)-1})
@@ -133,6 +154,7 @@ def load_plan(path):
     def resolve(value):
         f=Path(value);return str(f if f.is_absolute() else (base/f).resolve())
     p['source']['frame_dir']=resolve(p['source']['frame_dir'])
+    if p.get('motion_manifest'):p['motion_manifest']=resolve(p['motion_manifest'])
     p.setdefault('plate',{})
     p['plate']['frame_dir']=resolve(p['plate'].get('frame_dir',p['source']['frame_dir']))
     p.setdefault('font',{})
@@ -191,7 +213,11 @@ def validate(p):
             actual=''.join(l['text'] for l in p['layers'] if l['slot']==slot['id'] and l['language']==lang and l['role']=='primary')
             expected=slot.get(key,'')
             if text_key(actual)!=text_key(expected):raise ValueError(f'Copy mismatch: {slot["id"]} {lang}: {actual!r} != {expected!r}')
-    return {'slots':len(slots),'layers':len(p['layers']),'frames':n,'font_glyphs':'passed','copy':'passed','note':'Plan checks do not prove visual fidelity or OCR correctness.'}
+    result={'slots':len(slots),'layers':len(p['layers']),'frames':n,'font_glyphs':'passed','copy':'passed','note':'Plan checks do not prove visual fidelity or OCR correctness.'}
+    if p.get('motion_manifest'):
+        from motion_contract import check_manifest
+        result['motion_contract']=check_manifest(p['motion_manifest'],p)
+    return result
 
 def at(keys,frame):
     if frame<=keys[0][0]:return keys[0][1:]
@@ -273,7 +299,7 @@ def verify(a):
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__);sub=ap.add_subparsers(dest='command',required=True)
-    q=sub.add_parser('prepare');q.add_argument('--video',required=True);q.add_argument('--job',required=True);q.add_argument('--step',type=float,default=.1);q.add_argument('--fps');q.set_defaults(fn=prepare)
+    q=sub.add_parser('prepare');q.add_argument('--video',required=True);q.add_argument('--job',required=True);q.add_argument('--step',type=float,default=.1);q.add_argument('--fps');q.add_argument('--start',type=float,default=0);q.add_argument('--duration',type=float);q.set_defaults(fn=prepare)
     q=sub.add_parser('mask-color');q.add_argument('--frames',required=True);q.add_argument('--masks',required=True);q.add_argument('--start',type=int,default=0);q.add_argument('--end',type=int);q.add_argument('--roi');q.add_argument('--color',required=True);q.add_argument('--tolerance',type=float,default=45);q.add_argument('--min-area',type=int,default=1);q.add_argument('--grow',type=int,default=3);q.add_argument('--protect');q.set_defaults(fn=mask_color)
     q=sub.add_parser('clean');q.add_argument('--frames',required=True);q.add_argument('--masks',required=True);q.add_argument('--samples');q.add_argument('--color');q.add_argument('--output',required=True);q.add_argument('--feather',type=float,default=1);q.add_argument('--protect');q.set_defaults(fn=clean)
     q=sub.add_parser('check-plan');q.add_argument('--plan',required=True);q.set_defaults(fn=lambda a:print(json.dumps(validate(load_plan(a.plan)),ensure_ascii=False)))

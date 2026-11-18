@@ -1,4 +1,13 @@
 interface:
-  display_name: "参考视频自动换稿"
-  short_description: "提供参考视频和替换文案，自动匹配时间轴、复现文字动效并输出竖版成片"
-  default_prompt: "使用 $remake-reference-video，将我提供的文案自动替换到参考视频里，沿用原片风格与快闪节奏，直接输出无声竖版视频。"
+  display_name: "MotionForge AI｜AI 自动生成 MG 动画视频"
+  short_description: "参考视频加文案，自动拆解镜头、复现快闪动效、重建场景并生成MG动画视频"
+  default_prompt: "使用 $remake-reference-video，按参考视频的镜头、动效与节奏，将新脚本制作成MG动画；画面按新稿重做，直接输出无声竖版视频。"
+  icon_small: "assets/icon.svg"
+  icon_large: "assets/icon.svg"
+policy:
+  products:
+    - "chatgpt"
+    - "codex"
+    - "api"
+    - "atlas"
+  allow_implicit_invocation: true

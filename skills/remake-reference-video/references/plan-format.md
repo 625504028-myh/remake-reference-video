@@ -57,3 +57,11 @@ python3 "$SKILL_DIR/scripts/export_ae.py" --plan "$JOB/plan.json" --output "$JOB
 ```
 
 输出`Run_in_After_Effects.jsx`、独立底片和字体。JSX使用相同计划建立原生文字层与关键帧，保持素材相对位置。没有AE运行时仍先交MP4；脚本静态检查不等于AE实际执行、预览或渲染。有AE时运行脚本并另存新的工程，再按实际可用输出模板渲染，不能覆盖不相关工程。
+
+## 限定窗口与 MG 场景重制
+
+`prepare --start 0 --duration 20` 只准备指定窗口，并在 `media.json.window` 记录请求和实际对齐帧。所有 `in/out/start/end/keys` 仍从这个窗口的第 0 帧计数；`source.frames` 必须使用实际窗口帧数，不能沿用全片帧数。完整参数、帧率对齐与镜头清单见 `references/shot-contract.md`（相对本文件为 `shot-contract.md`）。
+
+MG 重制时，先用真实 AE/场景生成工具/逐帧程序制作新场景，并把镜头、元素、透视和转场合成为完整底片。`plate.frame_dir` 指向这份底片，再叠加精确文字；包内文字渲染器并不自动生成三维场景。`replacements` 只放已选用的文案，全文选用/延后清单由 `shot_manifest.json` 保存。
+
+在根节点填写 `"motion_manifest":"shot_manifest.json"`，即可让检查、渲染和最终技术验证都执行镜头清单校验。该字段在 MG 重制模式下必填；仅换字旧计划可省略。具体可见 `shot-contract.md`。
