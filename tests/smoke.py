@@ -94,6 +94,13 @@ def main():
         assert (ae / "FONT-NOTICE.txt").is_file()
         assert (ae / font_path.name).is_file()
         run("node", "-e", "new (require('vm').Script)(require('fs').readFileSync(process.argv[1], 'utf8'));", ae / "Run_in_After_Effects.jsx")
+        custom_font = job / "custom-noto.otf"
+        custom_font.write_bytes(font_path.read_bytes() + b"\0")
+        custom["font"]["path"] = str(custom_font)
+        custom_path.write_text(json.dumps(custom), encoding="utf-8")
+        run(sys.executable, SCRIPTS / "export_ae.py", "--plan", custom_path, "--output", job / "custom-ae")
+        assert not (job / "custom-ae" / "FONT-NOTICE.txt").exists()
+        assert not (job / "custom-ae" / "OFL.txt").exists()
         print("PASS: font integrity/cache, copy checks, real render/decode, silent media, AE JSX and OFL export.")
         print("Native AE execution and visual fidelity are not claimed by this smoke check.")
 

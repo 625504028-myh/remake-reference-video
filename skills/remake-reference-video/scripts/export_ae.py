@@ -3,6 +3,7 @@
 from pathlib import Path
 import argparse,json,shutil
 from video_pipeline import load_plan,validate,run
+from font_setup import verify_bytes
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--plan',required=True);ap.add_argument('--output',required=True);a=ap.parse_args()
@@ -11,7 +12,11 @@ def main():
     dest.mkdir(parents=True,exist_ok=True)
     run(['ffmpeg','-hide_banner','-loglevel','error','-framerate',str(p['source']['fps']),'-i',str(Path(p['plate']['frame_dir'])/'f_%06d.png'),'-an','-c:v','libx264','-preset','fast','-crf','16','-pix_fmt','yuv420p','-movflags','+faststart',dest/'Reference_Motion_Plate.mp4'])
     shutil.copy2(p['font']['path'],dest/Path(p['font']['path']).name)
-    if p['font']['postscript']=='NotoSansCJKsc-Bold':
+    try:
+        verify_bytes(Path(p['font']['path']).read_bytes())
+    except ValueError:
+        pass  # Custom fonts keep their own licensing and provenance.
+    else:
         notices=Path(__file__).resolve().parents[1]/'assets/fonts'
         for name in ['OFL.txt','FONT-NOTICE.txt']:
             shutil.copy2(notices/name,dest/name)
