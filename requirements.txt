@@ -1,0 +1,5 @@
+# Python 3.11+; install ffmpeg and ffprobe separately.
+Pillow>=10.0,<14
+numpy>=1.24,<3
+scipy>=1.11,<2
+fonttools>=4.40,<5

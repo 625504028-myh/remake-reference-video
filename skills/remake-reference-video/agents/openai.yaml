@@ -1,0 +1,4 @@
+interface:
+  display_name: "参考视频自动换稿"
+  short_description: "提供参考视频和替换文案，自动匹配时间轴、复现文字动效并输出竖版成片"
+  default_prompt: "使用 $remake-reference-video，将我提供的文案自动替换到参考视频里，沿用原片风格与快闪节奏，直接输出无声竖版视频。"

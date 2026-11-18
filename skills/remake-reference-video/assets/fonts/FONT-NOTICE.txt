@@ -1,0 +1,11 @@
+Public default font: Noto Sans CJK SC Bold
+Official upstream: https://github.com/notofonts/noto-cjk
+Pinned commit: f8d157532fbfaeda587e826d4cd5b21a49186f7c
+Path: Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Bold.otf
+Size: 17002248 bytes
+Git blob SHA-1: ff4c0450e8a5bf0290fbb6013a72dc61a10e8e56
+PostScript name: NotoSansCJKsc-Bold
+Copyright: retain the original font's embedded copyright metadata.
+License: SIL Open Font License 1.1; complete text in OFL.txt.
+The official font is downloaded without modifications on first use.
+The SanJi font from the private workflow is not redistributed.
