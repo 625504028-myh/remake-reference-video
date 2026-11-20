@@ -1,6 +1,6 @@
-# 标准动画计划
+# 只换字渲染计划
 
-由执行任务的模型根据实际参考片生成此JSON，不要求用户填写。路径相对`plan.json`或使用绝对路径。脚本不自动理解自然语言、不自动推断时间轴；这些是Skill执行者的职责。
+当前流程先按 `text-replacement.md` 冻结全片中英文并生成选段任务，再生成此 JSON，不要求用户填写。路径相对`plan.json`或使用绝对路径。脚本不自动理解自然语言、不自动推断时间轴；这些是Skill执行者的职责。
 
 ```json
 {
@@ -27,9 +27,9 @@
 ## 字段
 
 - `source`是实际解码源的像素坐标系；`plate.frame_dir`是已经检查的无旧字底片，不填时沿用源帧（仅适合本来无须清字的情况）。所有帧目录必须完整连续命名为`f_000001.png`。
-- `output`默认1080×1920并等比容纳。参考非竖屏时用`background`补边。输出帧率须与解码源一致；需要更改时先在`prepare --fps`规范化源帧，不能只改输出fps导致总时长漂移。
-- `font`可省略以自动获取默认 Noto 字体；自定义时填`{"path":"font.ttf"}`，PostScript 名从字体读取。可另填 `postscript`，但必须与实际字体相符。支持单字体 TTF/OTF；TTC 应先选择并导出需要的 face。先检查cmap。
-- `replacements`是完整新稿的内部对照，`cn`与`en`必须符合用户输入；英文为空时填空字符串，不能把“—”排到视频。`english_mode`区分provided、translated、none或keep。未变更原转场可填`preserve:true`，同时确保该段底片保留且无新字层。
+- 新选段契约的 `output` 默认原片宽高，只有请求明确覆盖才改变。输出帧率须与解码源一致；需要更改时先在`prepare --fps`规范化源帧，不能只改输出fps导致总时长漂移。
+- 有新文字层时填写实际字体，不强制使用固定包内字体；优先匹配原片，用户指定字体时服从。格式为`{"path":"font.ttf","postscript":"真实PS名称"}`。先检查cmap。
+- `replacements`仅列本任务实际变化的槽位；未变化语言填 `preserve_languages:["cn"]` 或 `["en"]`，原文字保留在底片且不建新层。`cn`与`en`必须符合用户输入；英文为空时填空字符串，不能把“—”排到视频。`english_mode`区分provided、translated、none或keep。未变更原转场可填`preserve:true`，同时确保该段底片保留且无新字层。
 - 一行一个层，多行用多个层。每个文字组按逻辑阅读顺序排列`primary`层（也用于逐字轨道），拼接后必须等于该组完整新稿；自动换行允许删除换行符对比。英文空格、数字、符号与大小写不能随意变。
 - `echo`层只重复主稿，文本完整性核对不重复计数。每个层的`slot`必须指向真实文字组。
 - `keys`每项为`[帧号,x,y,水平缩放,垂直缩放,顺时针角度,不透明度,模糊半径]`；坐标、字号、模糊半径、tracking都以源像素为单位。透明度0–1，缩放1为100%。关键帧线性插值；复杂缓动应采样成更密的关键帧。第一键必须等于该层`in`。
@@ -48,7 +48,7 @@ python3 "$SKILL_DIR/scripts/video_pipeline.py" verify --plan "$JOB/plan.json" --
 
 验证工具仅核对计划文字、字体和技术指标。源内容识别、旧字清除、装饰保护、运动一致性与可读性必须由模型查看图片/视频确认。
 
-包内`render/verify`实现默认无音轨路径。用户明确要求保留人声或音效时，先完成画面，再按其要求分离/混入相应音轨，并改用允许目标音轨的技术检查；不能全静音后声称满足保留人声的要求。
+新任务显式填写 `audio`。默认 `mode:preserve`、`path:原参考视频`、`start:选段原片起点秒数`；原片无音轨时保持无音轨。明确静音用 `mute`；替换/混合用 `replace/mix` 并指向已准备的真实音频文件，从 0 开始。旧计划未填 audio 时保留静音兼容行为，不能沿用到新契约任务。
 
 ## 可选AE脚本
 
@@ -58,10 +58,12 @@ python3 "$SKILL_DIR/scripts/export_ae.py" --plan "$JOB/plan.json" --output "$JOB
 
 输出`Run_in_After_Effects.jsx`、独立底片和字体。JSX使用相同计划建立原生文字层与关键帧，保持素材相对位置。没有AE运行时仍先交MP4；脚本静态检查不等于AE实际执行、预览或渲染。有AE时运行脚本并另存新的工程，再按实际可用输出模板渲染，不能覆盖不相关工程。
 
-## 限定窗口与 MG 场景重制
+## 选段契约与原画面保留
 
-`prepare --start 0 --duration 20` 只准备指定窗口，并在 `media.json.window` 记录请求和实际对齐帧。所有 `in/out/start/end/keys` 仍从这个窗口的第 0 帧计数；`source.frames` 必须使用实际窗口帧数，不能沿用全片帧数。完整参数、帧率对齐与镜头清单见 `references/shot-contract.md`（相对本文件为 `shot-contract.md`）。
+根节点填写 `replacement_contract` 与 `motion_manifest`，并设置 `production.mode:text-replace`、`preserve_nontext_visuals:true`、`font_policy:source`（明确提供字体时为 provided）。完整基线、A/B 请求、jobs 和契约格式见 `text-replacement.md`。
 
-MG 重制时，先用真实 AE/场景生成工具/逐帧程序制作新场景，并把镜头、元素、透视和转场合成为完整底片。`plate.frame_dir` 指向这份底片，再叠加精确文字；包内文字渲染器并不自动生成三维场景。`replacements` 只放已选用的文案，全文选用/延后清单由 `shot_manifest.json` 保存。
+A 按实际变化区间分别准备/导出；B 从第 0 帧到最后已用槽位完整退场，使用全文。`prepare --start/--duration` 的值来自生成的 job，不自行加片头、片尾或换成固定时长。源片帧号与窗口内帧号通过 `source_start` 转换。
 
-在根节点填写 `"motion_manifest":"shot_manifest.json"`，即可让检查、渲染和最终技术验证都执行镜头清单校验。该字段在 MG 重制模式下必填；仅换字旧计划可省略。具体可见 `shot-contract.md`。
+`plate.frame_dir` 仅清除选中语言的原文字及残影，保留另一语言与全部非文字画面。禁止重建业务场景、换动画对象或使用生成画面。五类动效清单使用 `scene_treatment:preserved`，真实场景同样保留；具体见 `shot-contract.md`。
+
+脚本仍兼容既有明确授权的 motion-remake 计划；这是旧模式兼容，不是新 A/B 流程的分支。

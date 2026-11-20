@@ -2,7 +2,7 @@
 """Export a native AE text-layer builder from the same external-render plan."""
 from pathlib import Path
 import argparse,json,shutil
-from video_pipeline import load_plan,validate,run
+from video_pipeline import load_plan,validate,run,audio_arguments,audio_settings
 from font_setup import verify_bytes
 
 def main():
@@ -10,7 +10,8 @@ def main():
     p=load_plan(a.plan);validate(p);dest=Path(a.output).resolve()
     if dest.exists() and any(dest.iterdir()):raise ValueError('Use a new AE export directory')
     dest.mkdir(parents=True,exist_ok=True)
-    run(['ffmpeg','-hide_banner','-loglevel','error','-framerate',str(p['source']['fps']),'-i',str(Path(p['plate']['frame_dir'])/'f_%06d.png'),'-an','-c:v','libx264','-preset','fast','-crf','16','-pix_fmt','yuv420p','-movflags','+faststart',dest/'Reference_Motion_Plate.mp4'])
+    audio_inputs,audio_options=audio_arguments(p)
+    run(['ffmpeg','-hide_banner','-loglevel','error','-framerate',str(p['source']['fps']),'-i',str(Path(p['plate']['frame_dir'])/'f_%06d.png')]+audio_inputs+audio_options+['-c:v','libx264','-preset','fast','-crf','16','-pix_fmt','yuv420p','-movflags','+faststart',dest/'Reference_Motion_Plate.mp4'])
     shutil.copy2(p['font']['path'],dest/Path(p['font']['path']).name)
     try:
         verify_bytes(Path(p['font']['path']).read_bytes())
@@ -20,7 +21,7 @@ def main():
         notices=Path(__file__).resolve().parents[1]/'assets/fonts'
         for name in ['OFL.txt','FONT-NOTICE.txt']:
             shutil.copy2(notices/name,dest/name)
-    data={'source':{k:p['source'][k] for k in ['width','height','fps','frames']},'output':p['output'],'font':p['font']['postscript'],'layers':p['layers']}
+    data={'source':{k:p['source'][k] for k in ['width','height','fps','frames']},'output':p['output'],'font':p['font']['postscript'],'layers':p['layers'],'audio_enabled':audio_settings(p)['enabled']}
     script=r'''/* ExtendScript ES3. Generated builder; not evidence of AE execution. */
 (function () {
 var D=__DATA__;
@@ -51,12 +52,12 @@ try {
     var project=app.project || app.newProject();
     app.beginUndoGroup('Reference video copy replacement');undo=true;
     var folder=project.items.addFolder('Reference video - editable copy');
-    var comp=project.items.addComp('Replacement - silent',w,h,1,duration,fps);comp.parentFolder=folder;
+    var comp=project.items.addComp('Text replacement',w,h,1,duration,fps);comp.parentFolder=folder;
     var bgColor=D.output.background;
     comp.bgColor=[bgColor[0]/255,bgColor[1]/255,bgColor[2]/255];
     var solid=comp.layers.addSolid(comp.bgColor,'Frame background',w,h,1,duration);solid.locked=true;
     var item=project.importFile(new ImportOptions(file));item.parentFolder=folder;
-    var plate=comp.layers.add(item);plate.audioEnabled=false;plate.outPoint=duration;
+    var plate=comp.layers.add(item);plate.audioEnabled=D.audio_enabled;plate.outPoint=duration;
     tr(plate,'ADBE Position').setValue([w/2,h/2]);tr(plate,'ADBE Scale').setValue([factor*100,factor*100]);plate.locked=true;
     var i,j,l,layer,prop,doc,times,pos,scale,rot,opacity,blurs,k,hasBlur,fx;
     for(i=0;i<D.layers.length;i++){
@@ -80,7 +81,7 @@ try {
             fx=layer.property('ADBE Effect Parade').addProperty('ADBE Gaussian Blur 2');keys(fx.property('ADBE Gaussian Blur 2-0001'),times,blurs);
         }
     }
-    comp.openInViewer();log('Composition built. Preview and save a new .aep. Audio disabled. This is a reconstructed plate and editable text, not the original author project.');
+    comp.openInViewer();log('Composition built. Preview and save a new .aep. Audio follows the approved plan. This is a source plate and editable replacement text, not the original author project.');
 } catch(error) {log('Build failed: '+error.toString()+'; line '+error.line);throw error;}
 finally {if(undo){app.endUndoGroup();}}
 })();

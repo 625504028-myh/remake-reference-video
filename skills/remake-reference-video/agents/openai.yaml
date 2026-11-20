@@ -1,7 +1,7 @@
 interface:
   display_name: "MotionForge AI｜AI 自动生成 MG 动画视频"
-  short_description: "参考视频加文案，自动拆解镜头、复现快闪动效、重建场景并生成MG动画视频"
-  default_prompt: "使用 $remake-reference-video，按参考视频的镜头、动效与节奏，将新脚本制作成MG动画；画面按新稿重做，直接输出无声竖版视频。"
+  short_description: "先提取时间轴双语文案，再选在线表格逐段修改或完整脚本，保留原片全部视觉效果"
+  default_prompt: "使用 $remake-reference-video，先按时间轴提取参考视频全部中英文，再让我选择在线表格逐段修改或提供完整脚本；只替换文字，保留原片全部动效、转场、元素、动画和风格。"
   icon_small: "assets/icon.svg"
   icon_large: "assets/icon.svg"
 policy:

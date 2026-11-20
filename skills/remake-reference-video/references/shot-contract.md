@@ -1,4 +1,36 @@
-# 镜头与动效执行清单
+# 只换字任务的动效清单
+
+新 A/B 流程先使用 `text-replacement.md` 生成选段与 replacement_contract，再建立本清单。`mode` 必须为 `text-replace`；`copy_units` 在此模式不使用，文字核对统一由冻结基线与 replacement_contract 执行。
+
+每个镜头必须覆盖选段中的连续帧，包含 text、camera、scene、elements、transition 五类。每项写 observed、implementation，并引用真实文字层 layer_ids 或本地素材 artifact_ids；不存在的类别为空列表并在 absent 说明。保留场景也要记录，不能因不修改就不检查。
+
+`scene_treatment` 使用 `preserved`（包括实景与业务场景），填写 preserve_reason 和 preserved_artifact_ids，指向真实原片或底片证据。artifacts 的 kind 可为 source_media、scene_asset、build_source、project、review。禁止 rebuilt/generated。`copy_ids` 使用本任务实际修改槽位 ID，而不是全文语义单元 ID；一个变化跨镜头时可重复引用。
+
+```json
+{
+ "version":1,"mode":"text-replace","reference_media":"analysis/media.json",
+ "requested_window":{"start":0,"duration":2},"frames":60,"fps":"30/1",
+ "artifacts":[{"id":"original","path":"reference.mp4","kind":"source_media","description":"完整原参考片"}],
+ "plate":{"frame_dir":"clean_frames"},
+ "shots":[{"id":"shot1","in":0,"out":60,"copy_ids":["s01"],
+  "scene_treatment":"preserved","preserve_reason":"仅清除已选中的中文，保留原英文与全部画面",
+  "preserved_artifact_ids":["original"],
+  "effects":{
+   "text":[{"observed":"标题逐字进场","implementation":"同节奏新中文字层","layer_ids":["s01_cn"]}],
+   "camera":[],
+   "scene":[{"observed":"原业务场景","implementation":"保留原片像素","artifact_ids":["original"]}],
+   "elements":[],"transition":[]},
+  "absent":{"camera":"原镜头固定","elements":"无独立装饰","transition":"本示例无切换"}}]
+}
+```
+
+以上只是结构示例，必须依据本次原片重写观察、时间与图层。根节点 `plan.motion_manifest` 指向此文件；`plan.replacement_contract` 也必须同时绑定。`check-plan/render/verify` 均运行对应检查。完整解码检查和逐镜视觉验收仍必需，机械通过不证明动效相同。
+
+## 旧版 MG 重制兼容格式
+
+以下仅保留旧计划解释，不适用于当前 A/B 只换字流程。除非用户另行明确要求重制场景，不得切换此模式。
+
+### 旧版镜头与动效执行清单
 
 用于 `motion-remake` 模式；只换字任务可选。由执行者看完参考片、制定计划并完成场景素材后生成，不要求用户填写。文件记录“观察到什么→如何实现→实际文件/图层”，不能以一列“完成”代替证据。
 

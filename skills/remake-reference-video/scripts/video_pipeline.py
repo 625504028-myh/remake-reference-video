@@ -155,23 +155,51 @@ def load_plan(path):
         f=Path(value);return str(f if f.is_absolute() else (base/f).resolve())
     p['source']['frame_dir']=resolve(p['source']['frame_dir'])
     if p.get('motion_manifest'):p['motion_manifest']=resolve(p['motion_manifest'])
+    if p.get('replacement_contract'):p['replacement_contract']=resolve(p['replacement_contract'])
+    p.setdefault('audio',{'mode':'preserve' if p.get('replacement_contract') else 'mute'})
+    if p['audio'].get('path'):p['audio']['path']=resolve(p['audio']['path'])
     p.setdefault('plate',{})
     p['plate']['frame_dir']=resolve(p['plate'].get('frame_dir',p['source']['frame_dir']))
     p.setdefault('font',{})
+    if p.get('replacement_contract') and p['layers'] and not p['font'].get('path'):
+        raise ValueError('Text replacement requires an explicitly matched or user-approved font')
     p['font']['path']=resolve(p['font']['path']) if p['font'].get('path') else str(default_font())
-    with TTFont(p['font']['path']) as font:
-        postscript=font['name'].getDebugName(6)
-    if not postscript:raise ValueError('Font has no PostScript name')
-    if p['font'].get('postscript',postscript)!=postscript:
+    with TTFont(p['font']['path']) as font:postscript=font['name'].getDebugName(6)
+    if not postscript or p['font'].get('postscript',postscript)!=postscript:
         raise ValueError('Configured PostScript name differs from the selected font')
     p['font']['postscript']=postscript
     p.setdefault('output',{})
-    for k,v in [('width',1080),('height',1920),('fps',p['source']['fps']),('background',[0,0,0])]:p['output'].setdefault(k,v)
+    exact=bool(p.get('replacement_contract'))
+    for k,v in [('width',p['source']['width'] if exact else 1080),('height',p['source']['height'] if exact else 1920),('fps',p['source']['fps']),('background',[0,0,0])]:p['output'].setdefault(k,v)
     for layer in p['layers']:
         layer.setdefault('tracking',0);layer.setdefault('fill',[241,234,194]);layer.setdefault('role','primary')
     return p
 
 def text_key(text):return unicodedata.normalize('NFC',text).replace('\n','').replace('\r','')
+
+def audio_settings(p):
+    audio=p.get('audio',{'mode':'mute'});mode=audio.get('mode','preserve')
+    if mode not in ('preserve','mute','replace','mix'):raise ValueError('Unknown audio mode')
+    if mode=='mute':return {'mode':mode,'enabled':False,'streams':0,'start':0}
+    path=audio.get('path')
+    if not path or not Path(path).is_file():raise ValueError('Audio source or prepared audio file is missing')
+    start=audio.get('start',0)
+    if not isinstance(start,(int,float)) or not math.isfinite(start) or start<0:raise ValueError('Invalid audio offset')
+    metadata=probe(path);count=sum(x['codec_type']=='audio' for x in metadata['streams']);enabled=bool(count)
+    if mode in ('replace','mix') and not enabled:raise ValueError('Replacement/mixed audio file has no audio stream')
+    return {'mode':mode,'enabled':enabled,'streams':count,'path':path,'start':start}
+
+def audio_arguments(p):
+    """Return extra input/options for one existing video input and a timed audio input.
+
+    mix consumes an already mixed file; it does not invent voice/music mixing rules.
+    """
+    audio=audio_settings(p)
+    if not audio['enabled']:return [],['-map','0:v:0','-an']
+    duration=p['source']['frames']/float(Fraction(p['output']['fps']))
+    inputs=['-ss',str(audio['start']),'-i',str(audio['path'])]
+    options=['-map','0:v:0','-map','1:a','-af','apad','-t',str(duration),'-c:a','aac','-b:a','256k']
+    return inputs,options
 
 def validate(p):
     if p.get('version')!=1:raise ValueError('Unsupported plan version')
@@ -189,10 +217,13 @@ def validate(p):
     if len(slots)!=len(p['replacements']):raise ValueError('Duplicate replacement id')
     for slot in slots.values():
         if not 0<=slot['start']<slot['end']<=n:raise ValueError('Replacement outside source')
+        if not set(slot.get('preserve_languages',[]))<=set(('cn','en')):raise ValueError('Unknown preserved language')
     for l in p['layers']:
         if l['id'] in ids:raise ValueError('Duplicate layer id')
         ids.add(l['id'])
         if l['slot'] not in slots:raise ValueError('Layer has unknown slot')
+        language_key={'zh':'cn','en':'en'}.get(l['language'])
+        if language_key in slots[l['slot']].get('preserve_languages',[]):raise ValueError('Preserved language must stay in the source plate, not a new text layer')
         if not 0<=l['in']<l['out']<=n or l['font_size']<=0:raise ValueError('Invalid layer timing/size')
         if '\n' in l['text']:raise ValueError('Use one layer per line')
         if l['language'] not in ['zh','en'] or l['role'] not in ['primary','echo']:raise ValueError('Unknown language/role')
@@ -210,6 +241,7 @@ def validate(p):
     for slot in slots.values():
         if slot.get('preserve'):continue
         for lang,key in [('zh','cn'),('en','en')]:
+            if key in slot.get('preserve_languages',[]):continue
             actual=''.join(l['text'] for l in p['layers'] if l['slot']==slot['id'] and l['language']==lang and l['role']=='primary')
             expected=slot.get(key,'')
             if text_key(actual)!=text_key(expected):raise ValueError(f'Copy mismatch: {slot["id"]} {lang}: {actual!r} != {expected!r}')
@@ -217,6 +249,10 @@ def validate(p):
     if p.get('motion_manifest'):
         from motion_contract import check_manifest
         result['motion_contract']=check_manifest(p['motion_manifest'],p)
+    if p.get('replacement_contract'):
+        from text_replacement import check_replacement
+        result['replacement_contract']=check_replacement(p['replacement_contract'],p)
+    audio=audio_settings(p);result['audio']={'mode':audio['mode'],'streams_expected':audio['streams']}
     return result
 
 def at(keys,frame):
@@ -263,7 +299,10 @@ def render(a):
     lock=dest.with_name(dest.name+'.lock');fd=os.open(lock,os.O_CREAT|os.O_EXCL|os.O_WRONLY);os.close(fd)
     tmp=dest.with_name(dest.stem+'.'+uuid.uuid4().hex+'.tmp.mp4');proc=None
     try:
-        proc=subprocess.Popen(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','rawvideo','-pixel_format','rgb24','-video_size',f'{w}x{h}','-framerate',str(out['fps']),'-i','pipe:0','-an','-c:v','libx264','-preset','fast','-crf',str(a.crf),'-pix_fmt','yuv420p','-movflags','+faststart',str(tmp)],stdin=subprocess.PIPE)
+        audio_inputs,audio_options=audio_arguments(p)
+        command=['ffmpeg','-hide_banner','-loglevel','error','-y','-f','rawvideo','-pixel_format','rgb24','-video_size',f'{w}x{h}','-framerate',str(out['fps']),'-i','pipe:0']
+        command+=audio_inputs+audio_options+['-c:v','libx264','-preset','fast','-crf',str(a.crf),'-pix_fmt','yuv420p','-movflags','+faststart',str(tmp)]
+        proc=subprocess.Popen(command,stdin=subprocess.PIPE)
         n=src['frames'];queue_size=max(1,a.workers*2)
         with ThreadPoolExecutor(max_workers=a.workers) as pool:
             pending={i:pool.submit(frame_bytes,i) for i in range(min(n,queue_size))}
@@ -284,13 +323,14 @@ def render(a):
 
 def verify_file(video,p):
     result=probe(video);streams=result['streams'];v=next(x for x in streams if x['codec_type']=='video');out=p['output'];n=p['source']['frames'];fps=Fraction(out['fps'])
-    if any(x['codec_type']=='audio' for x in streams):raise ValueError('Expected no audio stream')
+    audio=audio_settings(p);audio_count=sum(x['codec_type']=='audio' for x in streams)
+    if audio_count!=audio['streams']:raise ValueError('Output audio does not match requested audio mode')
     if (v['width'],v['height'])!=(out['width'],out['height']):raise ValueError('Wrong output dimensions')
     if Fraction(v['r_frame_rate'])!=fps:raise ValueError('Wrong frame rate')
     if int(v.get('nb_frames',-1))!=n:raise ValueError('Wrong frame count')
     if abs(float(result['format']['duration'])-n/float(fps))>1/float(fps):raise ValueError('Wrong duration')
     run(['ffmpeg','-hide_banner','-loglevel','error','-i',video,'-f','null','-'])
-    return {'video':str(video),'width':v['width'],'height':v['height'],'frames':n,'fps':str(fps),'duration':n/float(fps),'audio_streams':0,'decode':'passed','native_ae_render_verified':False,'pixel_exact_match_claimed':False}
+    return {'video':str(video),'width':v['width'],'height':v['height'],'frames':n,'fps':str(fps),'duration':n/float(fps),'audio_streams':audio_count,'audio_mode':audio['mode'],'decode':'passed','native_ae_render_verified':False,'pixel_exact_match_claimed':False}
 
 def verify(a):
     p=load_plan(a.plan);report={'plan':validate(p),'media':verify_file(a.video,p)}
